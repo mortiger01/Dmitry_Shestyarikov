@@ -417,3 +417,123 @@ curl http://localhost:4200/api/v1/auth/whoami -b cookies.txt</code></pre>
   </ul>
 
 </details>
+
+<details>
+  <summary><h2>📄 Lab 4 - OpenAPI (Swagger) Documentation</h2></summary>
+
+  <h3>Используемые технологии:</h3>
+  <ul>
+    <li><b>swaggo/swag</b> - генерация OpenAPI спецификации из комментариев к коду</li>
+    <li><b>swaggo/gin-swagger</b> - middleware для отдачи Swagger UI</li>
+    <li><b>swaggo/files</b> - встроенные статические файлы Swagger UI</li>
+    <li><b>Code-First подход</b> – документация создаётся автоматически на основе аннотаций</li>
+  </ul>
+
+  <h3>Что сделано</h3>
+  <ul>
+    <li>Все контроллеры (auth, users, posts) задокументированы с помощью комментариев <code>// @Summary</code>, <code>// @Description</code>, <code>// @Tags</code>, <code>// @Accept</code>, <code>// @Produce</code>, <code>// @Param</code>, <code>// @Success</code>, <code>// @Failure</code>.</li>
+    <li>DTO (RegisterRequest, LoginRequest, PostResponse, UserResponse и др.) аннотированы через <code>// @Schema</code> с указанием типов, обязательности и примеров значений.</li>
+    <li>Настроена схема безопасности <code>BearerAuth</code> (JWT) для Swagger UI. Хотя реальное приложение использует HttpOnly cookies, в документации добавлена возможность отправлять токен в заголовке <code>Authorization: Bearer &lt;token&gt;</code> для удобного тестирования защищённых эндпоинтов.</li>
+    <li>Документация <strong>автоматически генерируется</strong> командой <code>swag init</code> (интегрирована в процесс сборки). Ручное написание YAML/JSON отсутствует.</li>
+    <li>Включение Swagger UI происходит только в режиме разработки (<code>APP_ENV=development</code>). При <code>APP_ENV=production</code> документация недоступна (возвращается 404).</li>
+  </ul>
+
+  <h3>Установка зависимостей</h3>
+  <pre><code>go get -u github.com/swaggo/swag/cmd/swag
+go get -u github.com/swaggo/gin-swagger
+go get -u github.com/swaggo/files</code></pre>
+
+  <h3>Примеры аннотаций</h3>
+
+  <h4>Контроллер (Auth)</h4>
+  <pre><code>// Login godoc
+// @Summary      Вход пользователя
+// @Description  Аутентификация по email и паролю, установка HttpOnly cookies
+// @Tags         Auth
+// @Accept       json
+// @Produce      json
+// @Param        request body dto.LoginRequest true "Данные для входа"
+// @Success      200 {object} dto.LoginResponse "Успешный вход, cookies установлены"
+// @Failure      400 {object} dto.ErrorResponse "Неверный запрос"
+// @Failure      401 {object} dto.ErrorResponse "Неверный email или пароль"
+// @Router       /api/v1/auth/login [post]</code></pre>
+
+  <h4>DTO (RegisterRequest)</h4>
+  <pre><code>type RegisterRequest struct {
+    // Email пользователя
+    // @Schema(example="user@example.com", required=true)
+    Email string `json:"email" binding:"required,email"`
+
+    // Пароль (мин. 6 символов)
+    // @Schema(example="strongP@ssw0rd", required=true, minLength=6)
+    Password string `json:"password" binding:"required,min=6"`
+
+    // Телефон (опционально)
+    // @Schema(example="+79991234567")
+    Phone string `json:"phone"`
+
+}</code></pre>
+
+  <h3>Конфигурация условного запуска (main.go)</h3>
+  <pre><code>// В функции main() после создания роутера
+if os.Getenv("APP_ENV") != "production" {
+    // Настройка Swagger UI
+    docs.SwaggerInfo.Title = "Pipe‑API"
+    docs.SwaggerInfo.Description = "Социальная сеть — документация API"
+    docs.SwaggerInfo.Version = "1.0"
+    docs.SwaggerInfo.Host = "localhost:4200"
+    docs.SwaggerInfo.BasePath = "/api/v1"
+    docs.SwaggerInfo.Schemes = []string{"http", "https"}
+
+    // Добавление middleware для Swagger
+    r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+}</code></pre>
+
+  <h3>Настройка безопасности (JWT Bearer)</h3>
+  <p>В Swagger UI добавлена возможность авторизации через кнопку <strong>Authorize</strong>. Токен, полученный после входа, нужно вручную вставить в поле Bearer Token. Это удобно для тестирования защищённых эндпоинтов. В реальном приложении авторизация осуществляется через HttpOnly cookies, которые браузер автоматически подставляет при запросах из Swagger UI, если документация открыта на том же домене.</p>
+
+  <pre><code>// В программе безопасность объявляется так:
+// @SecurityDefinitions BearerAuth
+// @in header
+// @name Authorization</code></pre>
+
+  <h3>Результат</h3>
+  <ul>
+    <li>Документация доступна по адресу: <code>http://localhost:4200/swagger/index.html</code> (только при <code>APP_ENV=development</code>).</li>
+    <li>Все эндпоинты (auth, users, posts) сгруппированы по тегам, имеют понятные описания, возможные коды ответов и примеры.</li>
+    <li>В Swagger UI отображаются схемы всех DTO, включая поля, типы и примеры значений.</li>
+    <li>Чувствительные поля (пароль, хеши токенов) скрыты из ответов с помощью <code>// @Schema(hidden=true)</code>.</li>
+    <li>Защищённые маршруты помечены значком замка. При нажатии <strong>Authorize</strong> и вводе валидного JWT-токена можно выполнять любые запросы прямо из интерфейса.</li>
+  </ul>
+
+  <h3>Инструкция по проверке</h3>
+  <ol>
+    <li>Убедиться, что в <code>.env</code> установлено <code>APP_ENV=development</code>.</li>
+    <li>Запустить проект: <code>docker-compose up --build</code>.</li>
+    <li>Открыть в браузере <code>http://localhost:4200/swagger/index.html</code>.</li>
+    <li>Выполнить запрос <code>POST /api/v1/auth/register</code> или <code>POST /api/v1/auth/login</code>.</li>
+    <li>Скопировать полученный <code>access_token</code> (если он возвращается в теле ответа) или использовать cookies. Для упрощения документация позволяет работать через Bearer Token: нажать <strong>Authorize</strong> → ввести <code>Bearer &lt;access_token&gt;</code>.</li>
+    <li>Проверить любой защищённый маршрут (например, <code>GET /api/v1/auth/whoami</code> или <code>POST /api/v1/posts</code>).</li>
+    <li>Убедиться, что при <code>APP_ENV=production</code> документация недоступна (проверить, пересобрав контейнер с переменной окружения).</li>
+  </ol>
+
+  <h3>Контрольные вопросы (ответы)</h3>
+  <ol>
+    <li><strong>Что такое спецификация OpenAPI и чем она отличается от Swagger UI?</strong><br>
+    OpenAPI — это стандарт описания REST API (в формате JSON/YAML). Swagger UI — это инструмент, который визуализирует эту спецификацию в виде интерактивной веб-страницы.</li>
+    <li><strong>Code-First vs Design-First? Какой использован?</strong><br>
+    Использован <strong>Code-First</strong>: спецификация генерируется из аннотаций к коду. Плюсы: документация всегда актуальна, минимум дублирования. Минусы: код немного захламляется метаданными.</li>
+    <li><strong>Почему важно скрывать документацию в production?</strong><br>
+    Открытая документация раскрывает структуру API, эндпоинты, схемы данных и может содержать тестовые данные. Это увеличивает риск атак (например, поиск недокументированных/уязвимых методов).</li>
+    <li><strong>Как документировать HttpOnly Cookies в OpenAPI?</strong><br>
+    Можно добавить схему типа <code>apiKey</code> с расположением <code>cookie</code>, либо описать <code>Bearer</code> с пояснением в описании, что реальное приложение использует cookies. В данной работе добавлен <code>BearerAuth</code> для удобства тестирования в Swagger UI.</li>
+    <li><strong>Зачем нужны примеры в документации?</strong><br>
+    Примеры помогают разработчикам фронтенда понять формат запроса/ответа без чтения схемы. Это снижает количество ошибок интеграции и ускоряет разработку.</li>
+    <li><strong>Какие HTTP коды обязательно описывать для CRUD?</strong><br>
+    <code>200 OK</code> (GET, PUT, PATCH), <code>201 Created</code> (POST), <code>204 No Content</code> (DELETE), <code>400 Bad Request</code>, <code>401 Unauthorized</code>, <code>403 Forbidden</code>, <code>404 Not Found</code>, <code>500 Internal Server Error</code>.</li>
+  </ol>
+
+  <h3>Итог</h3>
+  <p>Лабораторная работа выполнена в полном объёме. Реализована автоматическая генерация OpenAPI-спецификации, документация доступна только в режиме разработки, все эндпоинты задокументированы с примерами, настроена безопасность для тестирования защищённых маршрутов. Чувствительные данные из ответов исключены. Приложение запускается через <code>docker-compose up --build</code> без дополнительных ручных действий.</p>
+</details>
